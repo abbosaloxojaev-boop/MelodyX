@@ -1,0 +1,1307 @@
+/* =========================================================
+   MelodyX — application logic
+   · i18n: uz / ru / en
+   · persistent state (localStorage): theme, language,
+     volume, favourites, playback history, last track
+   · responsive sidebar, keyboard shortcuts, media session
+   ========================================================= */
+
+(function () {
+    'use strict';
+
+    /* --------------------------------------------------------
+       1. CONFIG
+       -------------------------------------------------------- */
+
+    var API = 'https://itunes.apple.com/search';
+    var REQUEST_TIMEOUT = 12000;
+    var HISTORY_LIMIT = 200;
+    var POPULAR_CACHE_TIME = 6 * 60 * 60 * 1000; // 6 hours
+
+    var STORE = {
+        lang: 'melodyLanguage',
+        theme: 'melodyTheme',
+        volume: 'melodyVolume',
+        muted: 'melodyMuted',
+        favorites: 'melodyFavorites',
+        history: 'melodyHistory',
+        lastTrack: 'melodyLastTrack',
+        view: 'melodyView',
+        popular: 'melodyPopular'
+    };
+
+    var COUNTRIES = {
+        uz: ['UZ', 'KZ', 'US'],
+        ru: ['RU', 'KZ', 'US'],
+        en: ['US', 'GB', 'TR']
+    };
+
+    var POPULAR_SEEDS = {
+        uz: ['Yangi Ozod', 'Ozoda', 'Miyagi', 'Konsta', 'Umid', 'Yulduz Usmonova', 'The Weeknd', 'Doston Xolmatov'],
+        ru: ['Мияги', 'Константин Кузьмин', 'Zivert', 'Три дня дождя', 'INSTASAMKA', 'MONATIK', 'The Weeknd', 'Zivert'],
+        en: ['The Weeknd', 'Billie Eilish', 'Ed Sheeran', 'Imagine Dragons', 'LISA', 'Tarkan', 'Miyagi', 'Konsta']
+    };
+
+    /* --------------------------------------------------------
+       2. TRANSLATIONS
+       -------------------------------------------------------- */
+
+    var translations = {
+        uz: {
+            home: 'Bosh sahifa',
+            myMusic: 'Mening musiqam',
+            favorites: 'Sevimlilar',
+            history: 'Tarix',
+            musicForYou: 'Siz uchun musiqa',
+            search: 'Qidirish',
+            searchPlaceholder: 'Qo‘shiq yoki artist qidiring...',
+            openMenu: 'Menyuni ochish',
+            closeMenu: 'Menyuni yopish',
+            language: 'Til',
+            toggleTheme: 'Mavzuni almashtirish',
+            heroEyebrow: 'MELODYX MUSIC',
+            heroTitle: 'Musiqani <span>his qiling.</span>',
+            heroText: 'Sevimli qo‘shiqlaringizni kashf qiling.',
+            adLabel: 'REKLAMA',
+            adTitle: 'Music on. <span>Crunch on.</span>',
+            adText: 'MelodyX — reklama hisobiga bepul musiqa.',
+            adSmall: 'Premium musiqa tajribasi — obuna emas, reklama modeli bilan.',
+            chipClassic: 'Classic',
+            chipFree: 'Free',
+            popular: 'Mashhur qo‘shiqlar',
+            trending: 'Trenddagi musiqalarni tinglang',
+            searchResults: 'Qidiruv natijalari',
+            myMusicSub: 'Bu qurilmada ijro etilgan hamma narsa',
+            recentlyPlayed: 'Oxirgi ijrolar',
+            recentlyPlayedSub: 'Sizning so‘nggi qo‘shiqlaringiz',
+            favoritesSub: 'Yoqtirgan qo‘shiqlaringiz',
+            historySub: 'Yaqinda ijro etilgan qo‘shiqlar',
+            clearHistory: 'Tarixni tozalash',
+            clearHistoryConfirm: 'Tarixni butunlay tozalashni tasdiqlaysizmi?',
+            historyCleared: 'Tarix tozalandi',
+            historyEmpty: 'Hali tarix yo‘q. Biror qo‘shiqni ijro eting!',
+            favoritesEmpty: 'Sevimlilar ro‘yxati bo‘sh. ♡ tugmasini bosing!',
+            myMusicEmpty: 'Hali hech narsa ijro etilmagan',
+            chooseSong: 'Qo‘shiq tanlang',
+            searching: 'Qidirilmoqda...',
+            notFound: 'Hech narsa topilmadi',
+            loading: 'Yuklanmoqda...',
+            errorNetwork: 'Internet aloqasi xatosi',
+            errorSearch: 'Qidiruv ishlamadi. Internetni tekshiring.',
+            retry: 'Qayta urinish',
+            noPreview: 'Bu qo‘shiq uchun audio preview mavjud emas',
+            audioError: 'Faylni yuklab bo‘lmadi',
+            seek: 'Qaytarish',
+            prev: 'Oldingi',
+            next: 'Keyingi',
+            play: 'Ishga tushirish',
+            pause: 'To‘xtatish',
+            mute: 'Ovozni o‘chirish',
+            unmute: 'Ovozni yoqish',
+            volume: 'Ovoz balandligi',
+            found: 'Topilgan: {n} ta qo‘shiq',
+            addedToFav: 'Sevimlilarga qo‘shildi',
+            removedFromFav: 'Sevimlilardan olib tashlandi',
+            favoriteCount: 'Sevimli: {n}',
+            historyCount: 'Jami yozuvlar: {n}',
+            playlist: 'MelodyX playlist',
+            timeNow: 'hozda',
+            timeSec: ['soniya oldin', 'soniya oldin', 'soniya oldin'],
+            timeMin: ['daqiqa oldin', 'daqiqa oldin', 'daqiqa oldin'],
+            timeHour: ['soat oldin', 'soat oldin', 'soat oldin'],
+            timeDay: ['kun oldin', 'kun oldin', 'kun oldin']
+        },
+
+        ru: {
+            home: 'Главная',
+            myMusic: 'Моя музыка',
+            favorites: 'Избранное',
+            history: 'История',
+            musicForYou: 'Музыка для вас',
+            search: 'Поиск',
+            searchPlaceholder: 'Найдите песню или исполнителя...',
+            openMenu: 'Открыть меню',
+            closeMenu: 'Закрыть меню',
+            language: 'Язык',
+            toggleTheme: 'Сменить тему',
+            heroEyebrow: 'MELODYX MUSIC',
+            heroTitle: 'Почувствуйте <span>музыку.</span>',
+            heroText: 'Откройте свои любимые песни.',
+            adLabel: 'РЕКЛАМА',
+            adTitle: 'Music on. <span>Crunch on.</span>',
+            adText: 'MelodyX — бесплатная музыка, поддерживается рекламой.',
+            adSmall: 'Премиальный музыкальный опыт — без подписки, на рекламной модели.',
+            chipClassic: 'Classic',
+            chipFree: 'Free',
+            popular: 'Популярные песни',
+            trending: 'Слушайте музыку в тренде',
+            searchResults: 'Результаты поиска',
+            myMusicSub: 'Всё, что вы слушали на этом устройстве',
+            recentlyPlayed: 'Недавно играли',
+            recentlyPlayedSub: 'Ваши последние треки',
+            favoritesSub: 'Песни, которые вам понравились',
+            historySub: 'Недавно прослушанные песни',
+            clearHistory: 'Очистить историю',
+            clearHistoryConfirm: 'Полностью очистить историю воспроизведения?',
+            historyCleared: 'История очищена',
+            historyEmpty: 'История пока пуста. Включите любую песню!',
+            favoritesEmpty: 'В избранном пока пусто. Нажмите ♡!',
+            myMusicEmpty: 'Вы ещё ничего не слушали',
+            chooseSong: 'Выберите песню',
+            searching: 'Поиск...',
+            notFound: 'Ничего не найдено',
+            loading: 'Загрузка...',
+            errorNetwork: 'Ошибка подключения к интернету',
+            errorSearch: 'Поиск не удался. Проверьте интернет.',
+            retry: 'Повторить',
+            noPreview: 'У этой песни нет аудио-превью',
+            audioError: 'Не удалось загрузить файл',
+            seek: 'Перемотка',
+            prev: 'Предыдущая',
+            next: 'Следующая',
+            play: 'Воспроизвести',
+            pause: 'Пауза',
+            mute: 'Выключить звук',
+            unmute: 'Включить звук',
+            volume: 'Громкость',
+            found: 'Найдено: {n} песен',
+            addedToFav: 'Добавлено в избранное',
+            removedFromFav: 'Удалено из избранного',
+            favoriteCount: 'В избранном: {n}',
+            historyCount: 'Всего записей: {n}',
+            playlist: 'Плейлист MelodyX',
+            timeNow: 'только что',
+            timeSec: ['секунду назад', 'секунды назад', 'секунд назад'],
+            timeMin: ['минуту назад', 'минуты назад', 'минут назад'],
+            timeHour: ['час назад', 'часа назад', 'часов назад'],
+            timeDay: ['день назад', 'дня назад', 'дней назад']
+        },
+
+        en: {
+            home: 'Home',
+            myMusic: 'My Music',
+            favorites: 'Favorites',
+            history: 'History',
+            musicForYou: 'Music for you',
+            search: 'Search',
+            searchPlaceholder: 'Search song or artist...',
+            openMenu: 'Open menu',
+            closeMenu: 'Close menu',
+            language: 'Language',
+            toggleTheme: 'Toggle theme',
+            heroEyebrow: 'MELODYX MUSIC',
+            heroTitle: 'Feel the <span>Music.</span>',
+            heroText: 'Discover your favorite songs.',
+            adLabel: 'ADVERTISEMENT',
+            adTitle: 'Music on. <span>Crunch on.</span>',
+            adText: 'MelodyX — free music, supported by ads.',
+            adSmall: 'Premium music experience — no subscription, ad supported.',
+            chipClassic: 'Classic',
+            chipFree: 'Free',
+            popular: 'Popular Songs',
+            trending: 'Listen to trending music',
+            searchResults: 'Search Results',
+            myMusicSub: 'Everything you have played on this device',
+            recentlyPlayed: 'Recently played',
+            recentlyPlayedSub: 'Your last tracks',
+            favoritesSub: 'Songs you liked',
+            historySub: 'Recently played songs',
+            clearHistory: 'Clear history',
+            clearHistoryConfirm: 'Clear the entire playback history?',
+            historyCleared: 'History cleared',
+            historyEmpty: 'No history yet. Play a song!',
+            favoritesEmpty: 'No favorites yet. Tap ♡!',
+            myMusicEmpty: 'You have not played anything yet',
+            chooseSong: 'Choose a song',
+            searching: 'Searching...',
+            notFound: 'Nothing found',
+            loading: 'Loading...',
+            errorNetwork: 'Internet connection error',
+            errorSearch: 'Search failed. Check your connection.',
+            retry: 'Retry',
+            noPreview: 'This song has no audio preview',
+            audioError: 'Could not load the audio file',
+            seek: 'Seek',
+            prev: 'Previous',
+            next: 'Next',
+            play: 'Play',
+            pause: 'Pause',
+            mute: 'Mute',
+            unmute: 'Unmute',
+            volume: 'Volume',
+            found: 'Found: {n} songs',
+            addedToFav: 'Added to favorites',
+            removedFromFav: 'Removed from favorites',
+            favoriteCount: 'Favorites: {n}',
+            historyCount: 'Total entries: {n}',
+            playlist: 'MelodyX playlist',
+            timeNow: 'just now',
+            timeSec: ['second ago', 'seconds ago', 'seconds ago'],
+            timeMin: ['minute ago', 'minutes ago', 'minutes ago'],
+            timeHour: ['hour ago', 'hours ago', 'hours ago'],
+            timeDay: ['day ago', 'days ago', 'days ago']
+        }
+    };
+
+    /* --------------------------------------------------------
+       3. UTILITIES
+       -------------------------------------------------------- */
+
+    function $(selector, scope) {
+        return (scope || document).querySelector(selector);
+    }
+
+    function $$(selector, scope) {
+        return Array.prototype.slice.call((scope || document).querySelectorAll(selector));
+    }
+
+    function escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    /* --- storage layer: everything is JSON-serialised so the whole
+           app state (theme, language, volume, favourites, history…)
+           survives a reload. read() tolerates raw strings written by
+           older versions of the app. --- */
+
+    function write(key, value) {
+        try {
+            localStorage.setItem(key, JSON.stringify(value));
+        } catch (e) {
+            /* private mode / quota exceeded — the app still works in memory */
+        }
+    }
+
+    function read(key, fallback) {
+        try {
+            var raw = localStorage.getItem(key);
+            if (raw === null) return fallback;
+            try {
+                return JSON.parse(raw);
+            } catch (e) {
+                return raw;
+            }
+        } catch (e) {
+            return fallback;
+        }
+    }
+
+    function readArray(key) {
+        var value = read(key, []);
+        return Array.isArray(value) ? value : [];
+    }
+
+    /* Russian/Uzbek style plural selection: [one, few, many] */
+    function plural(n, forms) {
+        if (!Array.isArray(forms)) return forms;
+        var n10 = n % 10;
+        var n100 = n % 100;
+        if (n10 === 1 && n100 !== 11) return forms[0];
+        if (n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14)) return forms[1];
+        return forms[2];
+    }
+
+    function formatTime(seconds) {
+        if (!isFinite(seconds) || seconds < 0) seconds = 0;
+        var m = Math.floor(seconds / 60);
+        var s = Math.floor(seconds % 60);
+        return m + ':' + (s < 10 ? '0' + s : s);
+    }
+
+    function relativeTime(timestamp) {
+        var diff = Math.floor((Date.now() - timestamp) / 1000);
+        if (diff < 45) return t('timeNow');
+        if (diff < 3600) return plural(Math.floor(diff / 60), t('timeMin'));
+        if (diff < 86400) return plural(Math.floor(diff / 3600), t('timeHour'));
+        if (diff < 2592000) return plural(Math.floor(diff / 86400), t('timeDay'));
+        return new Date(timestamp).toLocaleDateString(dateLocale());
+    }
+
+    function dateLocale() {
+        return currentLanguage === 'uz' ? 'uz-UZ' : (currentLanguage === 'ru' ? 'ru-RU' : 'en-GB');
+    }
+
+    function t(key, vars) {
+        var dict = translations[currentLanguage] || translations.en;
+        var value = dict[key];
+
+        if (value === undefined) {
+            value = (translations.en[key] !== undefined ? translations.en[key] : key);
+        }
+
+        if (vars) {
+            Object.keys(vars).forEach(function (name) {
+                value = String(value).split('{' + name + '}').join(vars[name]);
+            });
+        }
+
+        return value;
+    }
+
+    /* --------------------------------------------------------
+       4. STATE
+       -------------------------------------------------------- */
+
+    var currentLanguage = (function () {
+        var saved = read(STORE.lang, 'uz');
+        return translations[saved] ? saved : 'uz';
+    })();
+
+    var favorites = readArray(STORE.favorites);
+    var history = readArray(STORE.history);
+
+    var initialVolume = (function () {
+        var v = parseFloat(read(STORE.volume, 0.8));
+        return isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.8;
+    })();
+
+    var muted = read(STORE.muted, false) === true;
+
+    var queue = [];
+    var queueIndex = -1;
+    var currentSong = null;
+    var searchTimer = null;
+    var lastSearch = { term: '', songs: [], pending: false };
+
+    /* --------------------------------------------------------
+       5. DOM
+       -------------------------------------------------------- */
+
+    var els = {
+        html: document.documentElement,
+        themeMeta: $('#themeColorMeta'),
+        themeBtn: $('#themeBtn'),
+        themeIcon: $('#themeIcon'),
+        menuBtn: $('#menuBtn'),
+        sidebar: $('#sidebar'),
+        backdrop: $('#sidebarBackdrop'),
+        searchForm: $('#searchForm'),
+        searchInput: $('#searchInput'),
+        searchBtn: $('#searchBtn'),
+        langs: $$('.lang'),
+        panels: $$('.panel'),
+        navLinks: $$('.nav-link'),
+        favBadge: $('#favBadge'),
+        historyBadge: $('#historyBadge'),
+        popular: $('#popularSongs'),
+        searchSection: $('#searchSection'),
+        searchTitle: $('#searchTitle'),
+        searchSubtitle: $('#searchSubtitle'),
+        searchSongs: $('#searchSongs'),
+        myMusicRecent: $('#myMusicRecent'),
+        myMusicFavorites: $('#myMusicFavorites'),
+        favoriteSongs: $('#favoriteSongs'),
+        historySongs: $('#historySongs'),
+        favoritesSubtitle: $('#favoritesSubtitle'),
+        historySubtitle: $('#historySubtitle'),
+        clearHistoryBtn: $('#clearHistoryBtn'),
+        player: $('#player'),
+        playerImage: $('#playerImage'),
+        playerTitle: $('#playerTitle'),
+        playerArtist: $('#playerArtist'),
+        playBtn: $('#playBtn'),
+        playIcon: $('#playIcon'),
+        prevBtn: $('#prevBtn'),
+        nextBtn: $('#nextBtn'),
+        audio: $('#audio'),
+        progress: $('#progress'),
+        currentTime: $('#currentTime'),
+        durationTime: $('#durationTime'),
+        volume: $('#volume'),
+        muteBtn: $('#muteBtn'),
+        volumeIcon: $('#volumeIcon'),
+        toasts: $('#toasts'),
+        live: $('#liveRegion')
+    };
+
+    window.__els = els; // DEBUG-TEMP
+
+    /* --------------------------------------------------------
+       6. I18N
+       -------------------------------------------------------- */
+
+    function applyLanguage() {
+        els.html.setAttribute('lang', currentLanguage);
+
+        $$('[data-i18n]').forEach(function (el) {
+            el.innerHTML = t(el.dataset.i18n);
+        });
+
+        $$('[data-placeholder]').forEach(function (el) {
+            el.placeholder = t(el.dataset.placeholder);
+        });
+
+        $$('[data-i18n-aria]').forEach(function (el) {
+            el.setAttribute('aria-label', t(el.dataset.i18nAria));
+        });
+
+        els.langs.forEach(function (btn) {
+            var active = btn.dataset.lang === currentLanguage;
+            btn.classList.toggle('active', active);
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+
+        updateDynamicText();
+    }
+
+    function setLanguage(lang) {
+        if (!translations[lang]) return;
+        currentLanguage = lang;
+        write(STORE.lang, lang);
+        applyLanguage();
+
+        /* Re-render every list: empty/error states are baked into the markup,
+           so they would otherwise stay in the previous language. */
+        renderFavorites();
+        renderHistory();
+        renderMyMusic();
+        rerenderSearchResults();
+    }
+
+    function rerenderSearchResults() {
+        if (!lastSearch.term) return;
+        if (lastSearch.pending) return;
+
+        els.searchSection.hidden = false;
+        els.searchTitle.textContent = '“' + lastSearch.term + '”';
+        renderSongs(els.searchSongs, lastSearch.songs, { emptyText: t('notFound'), icon: '⌕' });
+        updateDynamicText();
+    }
+
+    /* --------------------------------------------------------
+       7. THEME
+       -------------------------------------------------------- */
+
+    function applyTheme(theme) {
+        els.html.dataset.theme = theme;
+        els.themeIcon.textContent = theme === 'light' ? '☀' : '☾';
+        els.themeBtn.setAttribute('aria-pressed', theme === 'light' ? 'true' : 'false');
+        if (els.themeMeta) {
+            els.themeMeta.setAttribute('content', getComputedStyle(els.html).getPropertyValue('--theme-color').trim() || '#070707');
+        }
+    }
+
+    function toggleTheme() {
+        var next = els.html.dataset.theme === 'light' ? 'dark' : 'light';
+        write(STORE.theme, next);
+        applyTheme(next);
+    }
+
+    /* --------------------------------------------------------
+       8. TOASTS
+       -------------------------------------------------------- */
+
+    function toast(message) {
+        var node = document.createElement('div');
+        node.className = 'toast';
+        node.textContent = message;
+        els.toasts.appendChild(node);
+        els.live.textContent = message;
+
+        setTimeout(function () {
+            node.classList.add('out');
+            setTimeout(function () {
+                node.remove();
+            }, 260);
+        }, 2600);
+    }
+
+    /* --------------------------------------------------------
+       9. API
+       -------------------------------------------------------- */
+
+    function normalizeSong(raw) {
+        if (!raw || !raw.trackId) return null;
+        return {
+            id: String(raw.trackId),
+            title: raw.trackName || 'Unknown',
+            artist: raw.artistName || 'Unknown artist',
+            album: raw.collectionName || '',
+            cover: raw.artworkUrl100
+                ? raw.artworkUrl100.replace('100x100', '600x600')
+                : '',
+            url: raw.previewUrl || '',
+            durationMs: raw.trackTimeMillis || 0,
+            genre: raw.primaryGenreName || '',
+            year: raw.releaseDate ? String(raw.releaseDate).slice(0, 4) : ''
+        };
+    }
+
+    function fetchJSON(url) {
+        var controller = ('AbortController' in window) ? new AbortController() : null;
+        var timer = setTimeout(function () {
+            if (controller) controller.abort();
+        }, REQUEST_TIMEOUT);
+
+        return fetch(url, controller ? { signal: controller.signal } : undefined)
+            .then(function (response) {
+                if (!response.ok) throw new Error('HTTP ' + response.status);
+                return response.json();
+            })
+            .finally(function () {
+                clearTimeout(timer);
+            });
+    }
+
+    function pool(items, limit, worker) {
+        var results = new Array(items.length);
+        var cursor = 0;
+
+        function run() {
+            if (cursor >= items.length) return Promise.resolve();
+            var index = cursor++;
+            return worker(items[index], index)
+                .then(function (value) {
+                    results[index] = value;
+                    return run();
+                })
+                .catch(function () {
+                    results[index] = [];
+                    return run();
+                });
+        }
+
+        var runners = [];
+        for (var i = 0; i < Math.min(limit, items.length); i++) runners.push(run());
+        return Promise.all(runners).then(function () {
+            return results;
+        });
+    }
+
+    function searchAPI(term, limit, countries) {
+        var list = countries || COUNTRIES[currentLanguage] || COUNTRIES.en;
+
+        return pool(list, 3, function (country) {
+            var url = API +
+                '?term=' + encodeURIComponent(term) +
+                '&media=music' +
+                '&entity=song' +
+                '&limit=' + limit +
+                '&country=' + country;
+
+            return fetchJSON(url).then(function (data) {
+                return (data && data.results) ? data.results : [];
+            });
+        }).then(function (chunks) {
+            var seen = {};
+            var songs = [];
+
+            chunks.forEach(function (chunk) {
+                chunk.forEach(function (raw) {
+                    var song = normalizeSong(raw);
+                    if (song && song.url && !seen[song.id]) {
+                        seen[song.id] = true;
+                        songs.push(song);
+                    }
+                });
+            });
+
+            return songs;
+        });
+    }
+
+    function loadPopular() {
+        var cached = read(STORE.popular, null);
+        if (cached && cached.songs && cached.songs.length && (Date.now() - cached.ts) < POPULAR_CACHE_TIME) {
+            renderSongs(els.popular, cached.songs, { showTime: false });
+            return;
+        }
+
+        showSkeleton(els.popular, 5);
+
+        var seeds = POPULAR_SEEDS[currentLanguage] || POPULAR_SEEDS.en;
+
+        Promise.all(
+            seeds.map(function (name) {
+                return searchAPI(name, 3);
+            })
+        ).then(function (groups) {
+            var seen = {};
+            var songs = [];
+
+            groups.forEach(function (group) {
+                group.forEach(function (song) {
+                    if (!seen[song.id]) {
+                        seen[song.id] = true;
+                        songs.push(song);
+                    }
+                });
+            });
+
+            songs = songs.slice(0, 10);
+
+            if (!songs.length) throw new Error('empty');
+
+            write(STORE.popular, { ts: Date.now(), songs: songs });
+            renderSongs(els.popular, songs, { showTime: false });
+        })
+        .catch(function () {
+            showState(els.popular, t('errorNetwork'), { error: true, retry: loadPopular });
+        });
+    }
+
+    /* --------------------------------------------------------
+       10. RENDERING
+       -------------------------------------------------------- */
+
+    var lists = new WeakMap();
+
+    function renderSongs(container, songs, options) {
+        if (!container) return;
+        var opts = options || {};
+
+        lists.set(container, songs);
+        container.setAttribute('aria-busy', 'false');
+
+        if (!songs || !songs.length) {
+            showState(container, opts.emptyText || t('notFound'), { icon: opts.icon });
+            return;
+        }
+
+        var html = songs.map(function (song) {
+            var isFav = isFavorite(song.id);
+            return '' +
+                '<article class="song" data-id="' + escapeHtml(song.id) + '" tabindex="0" role="button" ' +
+                        'aria-label="' + escapeHtml(song.title + ' — ' + song.artist) + '">' +
+                    '<div class="song-cover">' +
+                        '<img src="' + escapeHtml(song.cover || placeholderCover()) + '" alt="" loading="lazy" decoding="async">' +
+                        '<button class="song-fav" type="button" aria-pressed="' + (isFav ? 'true' : 'false') + '" ' +
+                                'data-i18n-aria="favorites" aria-label="' + escapeHtml(t('favorites')) + '">' +
+                            (isFav ? '♥' : '♡') +
+                        '</button>' +
+                        '<button class="song-play" type="button" aria-hidden="true" tabindex="-1">▶</button>' +
+                    '</div>' +
+                    '<h3>' + escapeHtml(song.title) + '</h3>' +
+                    '<p>' + escapeHtml(song.artist) + '</p>' +
+                    (opts.showTime && song.playedAt
+                        ? '<span class="song-time">◷ ' + escapeHtml(relativeTime(song.playedAt)) + '</span>'
+                        : '') +
+                '</article>';
+        }).join('');
+
+        container.innerHTML = html;
+        markPlaying();
+    }
+
+    function placeholderCover() {
+        return 'data:image/svg+xml;utf8,' + encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' +
+            '<rect width="100" height="100" fill="#171717"/>' +
+            '<text x="50" y="62" font-size="40" text-anchor="middle" fill="#555">♪</text></svg>'
+        );
+    }
+
+    function showSkeleton(container, count) {
+        if (!container) return;
+        container.setAttribute('aria-busy', 'true');
+        var cells = '';
+        for (var i = 0; i < count; i++) cells += '<div class="sk"></div>';
+        container.innerHTML = '<div class="skeleton">' + cells + '</div>';
+    }
+
+    function showState(container, message, opts) {
+        if (!container) return;
+        var o = opts || {};
+        lists.set(container, []);
+        container.setAttribute('aria-busy', 'false');
+
+        var html = '<div class="state' + (o.error ? ' error' : '') + '">';
+        if (o.icon) html += '<span class="state-icon">' + escapeHtml(o.icon) + '</span>';
+        html += '<span>' + escapeHtml(message) + '</span>';
+        if (o.retry) {
+            html += '<button class="state retry-btn" type="button" data-retry>' + escapeHtml(t('retry')) + '</button>';
+        }
+        html += '</div>';
+
+        container.innerHTML = html;
+
+        var retryBtn = $('[data-retry]', container);
+        if (retryBtn && o.retry) retryBtn.addEventListener('click', o.retry);
+    }
+
+    function markPlaying() {
+        $$('.song').forEach(function (card) {
+            var playing = currentSong && card.dataset.id === currentSong.id;
+            card.classList.toggle('is-playing', !!playing);
+            var btn = $('.song-play', card);
+            if (btn) btn.textContent = playing ? '❚❚' : '▶';
+        });
+    }
+
+    function updateBadges() {
+        els.favBadge.textContent = favorites.length;
+        els.favBadge.hidden = favorites.length === 0;
+        els.historyBadge.textContent = history.length;
+        els.historyBadge.hidden = history.length === 0;
+    }
+
+    function updateDynamicText() {
+        els.favoritesSubtitle.textContent = favorites.length
+            ? t('favoriteCount', { n: favorites.length })
+            : t('favoritesSub');
+
+        els.historySubtitle.textContent = history.length
+            ? t('historyCount', { n: history.length })
+            : t('historySub');
+
+        if (els.searchInput.value.trim()) {
+            var n = lists.get(els.searchSongs);
+            els.searchSubtitle.textContent = n && n.length ? t('found', { n: n.length }) : '';
+        }
+    }
+
+    /* --------------------------------------------------------
+       11. FAVORITES / HISTORY
+       -------------------------------------------------------- */
+
+    function isFavorite(id) {
+        return favorites.some(function (song) { return song.id === id; });
+    }
+
+    function toggleFavorite(song) {
+        var index = -1;
+        for (var i = 0; i < favorites.length; i++) {
+            if (favorites[i].id === song.id) { index = i; break; }
+        }
+
+        if (index >= 0) {
+            favorites.splice(index, 1);
+            toast(t('removedFromFav'));
+        } else {
+            favorites.unshift(song);
+            toast(t('addedToFav'));
+        }
+
+        write(STORE.favorites, favorites);
+        updateBadges();
+        updateDynamicText();
+        renderFavorites();
+        renderMyMusic();
+        refreshSongFavButtons(song.id);
+    }
+
+    function refreshSongFavButtons(id) {
+        $$('.song[data-id="' + id + '"] .song-fav').forEach(function (btn) {
+            var on = isFavorite(id);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            btn.textContent = on ? '♥' : '♡';
+        });
+    }
+
+    function addToHistory(song) {
+        history = history.filter(function (entry) { return entry.song.id !== song.id; });
+        history.unshift({ song: song, playedAt: Date.now() });
+        if (history.length > HISTORY_LIMIT) history = history.slice(0, HISTORY_LIMIT);
+        write(STORE.history, history);
+        updateBadges();
+        updateDynamicText();
+        renderHistory();
+    }
+
+    function clearHistory() {
+        if (!history.length) return;
+        if (!window.confirm(t('clearHistoryConfirm'))) return;
+        history = [];
+        write(STORE.history, history);
+        updateBadges();
+        updateDynamicText();
+        renderHistory();
+        renderMyMusic();
+        toast(t('historyCleared'));
+    }
+
+    /* --------------------------------------------------------
+       12. PANEL VIEWS
+       -------------------------------------------------------- */
+
+    var VIEWS = ['home', 'myMusic', 'favorites', 'history'];
+    var savedView = read(STORE.view, 'home');
+    var currentView = VIEWS.indexOf(savedView) >= 0 ? savedView : 'home';
+
+    function setView(view) {
+        if (VIEWS.indexOf(view) < 0) view = 'home';
+        currentView = view;
+        write(STORE.view, view);
+
+        els.panels.forEach(function (panel) {
+            var active = panel.dataset.panel === view;
+            panel.hidden = !active;
+            panel.classList.toggle('active', active);
+        });
+
+        els.navLinks.forEach(function (link) {
+            var active = link.dataset.view === view;
+            link.classList.toggle('active', active);
+            if (active) link.setAttribute('aria-current', 'page');
+            else link.removeAttribute('aria-current');
+        });
+
+        closeSidebar();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+
+        refreshVisiblePanels();
+    }
+
+    function refreshVisiblePanels() {
+        if (currentView === 'myMusic') renderMyMusic();
+        if (currentView === 'favorites') renderFavorites();
+        if (currentView === 'history') renderHistory();
+    }
+
+    function renderFavorites() {
+        renderSongs(els.favoriteSongs, favorites, { emptyText: t('favoritesEmpty'), icon: '♡' });
+        if (els.myMusicFavorites) {
+            renderSongs(els.myMusicFavorites, favorites.slice(0, 6), { emptyText: t('favoritesEmpty'), icon: '♡' });
+        }
+    }
+
+    function renderHistory() {
+        var entries = history.slice().map(function (entry) {
+            var song = {};
+            Object.keys(entry.song).forEach(function (k) { song[k] = entry.song[k]; });
+            song.playedAt = entry.playedAt;
+            return song;
+        });
+
+        renderSongs(els.historySongs, entries, { showTime: true, emptyText: t('historyEmpty'), icon: '◷' });
+    }
+
+    function renderMyMusic() {
+        var seen = {};
+        var recent = [];
+
+        history.forEach(function (entry) {
+            if (!seen[entry.song.id]) {
+                seen[entry.song.id] = true;
+                recent.push(entry.song);
+            }
+        });
+
+        if (els.myMusicRecent) {
+            renderSongs(els.myMusicRecent, recent.slice(0, 6), {
+                emptyText: recent.length ? t('notFound') : t('myMusicEmpty'),
+                icon: '♫'
+            });
+        }
+
+        renderFavorites();
+    }
+
+    /* --------------------------------------------------------
+       13. SEARCH
+       -------------------------------------------------------- */
+
+    function runSearch() {
+        var term = els.searchInput.value.trim();
+        if (!term) {
+            els.searchInput.focus();
+            return;
+        }
+
+        if (currentView !== 'home') setView('home');
+
+        lastSearch = { term: term, songs: [], pending: true };
+
+        els.searchBtn.disabled = true;
+        els.searchBtn.textContent = '...';
+        els.searchSection.hidden = false;
+        els.searchTitle.textContent = '“' + term + '”';
+        els.searchSubtitle.textContent = '';
+        showState(els.searchSongs, t('searching'), { icon: '⌕' });
+
+        searchAPI(term, 20)
+            .then(function (songs) {
+                lastSearch.songs = songs;
+                renderSongs(els.searchSongs, songs, { emptyText: t('notFound'), icon: '⌕' });
+                updateDynamicText();
+                els.searchSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            })
+            .catch(function () {
+                lastSearch.songs = [];
+                showState(els.searchSongs, t('errorSearch'), {
+                    error: true,
+                    retry: function () { runSearch(); }
+                });
+            })
+            .finally(function () {
+                lastSearch.pending = false;
+                els.searchBtn.disabled = false;
+                els.searchBtn.textContent = t('search');
+            });
+    }
+
+    /* --------------------------------------------------------
+       14. PLAYER
+       -------------------------------------------------------- */
+
+    function setVolumeIcon() {
+        var level = muted ? 0 : audioLevel();
+        els.volumeIcon.textContent = level === 0 ? '🔇' : (level < 0.4 ? '🔈' : (level < 0.75 ? '🔉' : '🔊'));
+        els.muteBtn.setAttribute('aria-label', muted ? t('unmute') : t('mute'));
+    }
+
+    function audioLevel() {
+        var value = parseFloat(els.volume.value);
+        return isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.8;
+    }
+
+    function applyVolume() {
+        els.audio.volume = muted ? 0 : audioLevel();
+        els.audio.muted = muted;
+        setVolumeIcon();
+        write(STORE.volume, audioLevel());
+        write(STORE.muted, muted);
+    }
+
+    function setPlayingState(playing) {
+        els.playIcon.textContent = playing ? '❚❚' : '▶';
+        els.playBtn.setAttribute('aria-label', playing ? t('pause') : t('play'));
+        document.body.classList.toggle('is-playing', playing);
+    }
+
+    function setCurrent(song, list, index) {
+        currentSong = song;
+        if (list) queue = list;
+        if (typeof index === 'number') queueIndex = index;
+
+        els.playerImage.src = song.cover || placeholderCover();
+        els.playerTitle.textContent = song.title;
+        els.playerArtist.textContent = song.artist + (song.album ? ' — ' + song.album : '');
+
+        els.prevBtn.disabled = queue.length < 2;
+        els.nextBtn.disabled = queue.length === 0;
+
+        write(STORE.lastTrack, song);
+
+        if ('mediaSession' in navigator) {
+            try {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: song.title,
+                    artist: song.artist,
+                    album: song.album || t('playlist'),
+                    artwork: song.cover ? [{ src: song.cover, sizes: '600x600', type: 'image/jpeg' }] : []
+                });
+            } catch (e) { /* not supported */ }
+        }
+
+        markPlaying();
+    }
+
+    function playAt(list, index) {
+        if (!list || !list[index]) return;
+        setCurrent(list[index], list, index);
+
+        if (!list[index].url) {
+            toast(t('noPreview'));
+            return;
+        }
+
+        els.audio.src = list[index].url;
+        els.audio.currentTime = 0;
+
+        var attempt = els.audio.play();
+
+        if (attempt && typeof attempt.catch === 'function') {
+            attempt.then(function () {
+                setPlayingState(true);
+                addToHistory(list[index]);
+            }).catch(function () {
+                setPlayingState(false);
+            });
+        }
+    }
+
+    function togglePlay() {
+        if (!currentSong) {
+            if (queue.length) playAt(queue, 0);
+            return;
+        }
+
+        if (els.audio.paused) {
+            if (!els.audio.src) {
+                els.audio.src = currentSong.url;
+            }
+            els.audio.play().then(function () {
+                setPlayingState(true);
+                addToHistory(currentSong);
+            }).catch(function () {
+                toast(t('audioError'));
+            });
+        } else {
+            els.audio.pause();
+        }
+    }
+
+    function step(delta) {
+        if (!queue.length) return;
+        var next = (queueIndex + delta + queue.length) % queue.length;
+        playAt(queue, next);
+    }
+
+    function seekTo(value) {
+        if (isFinite(els.audio.duration) && els.audio.duration > 0) {
+            els.audio.currentTime = (value / 1000) * els.audio.duration;
+        }
+    }
+
+    /* --------------------------------------------------------
+       15. SIDEBAR
+       -------------------------------------------------------- */
+
+    function openSidebar() {
+        els.sidebar.classList.add('open');
+        els.backdrop.hidden = false;
+        /* force a reflow so the opacity transition actually runs */
+        void els.backdrop.offsetWidth;
+        els.backdrop.classList.add('show');
+        els.menuBtn.setAttribute('aria-expanded', 'true');
+        els.menuBtn.setAttribute('aria-label', t('closeMenu'));
+    }
+
+    function closeSidebar() {
+        els.sidebar.classList.remove('open');
+        els.backdrop.classList.remove('show');
+        setTimeout(function () {
+            if (!els.sidebar.classList.contains('open')) els.backdrop.hidden = true;
+        }, 300);
+        els.menuBtn.setAttribute('aria-expanded', 'false');
+        els.menuBtn.setAttribute('aria-label', t('openMenu'));
+    }
+
+    function toggleSidebar() {
+        if (els.sidebar.classList.contains('open')) closeSidebar();
+        else openSidebar();
+    }
+
+    /* --------------------------------------------------------
+       16. EVENTS
+       -------------------------------------------------------- */
+
+    function bindEvents() {
+
+        els.langs.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                setLanguage(btn.dataset.lang);
+            });
+        });
+
+        els.themeBtn.addEventListener('click', toggleTheme);
+        els.menuBtn.addEventListener('click', toggleSidebar);
+        els.backdrop.addEventListener('click', closeSidebar);
+
+        els.navLinks.forEach(function (link) {
+            link.addEventListener('click', function () {
+                setView(link.dataset.view);
+            });
+        });
+
+        els.searchForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            runSearch();
+        });
+
+        els.searchInput.addEventListener('input', function () {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(function () {
+                if (els.searchInput.value.trim().length > 1) runSearch();
+            }, 600);
+        });
+
+        els.clearHistoryBtn.addEventListener('click', clearHistory);
+
+        /* delegated song-card clicks */
+        [els.popular, els.searchSongs, els.favoriteSongs, els.historySongs,
+            els.myMusicRecent, els.myMusicFavorites].forEach(function (container) {
+
+            if (!container) return;
+
+            container.addEventListener('click', function (event) {
+                if (event.target.closest('[data-retry]')) return;
+
+                var favBtn = event.target.closest('.song-fav');
+                var card = event.target.closest('.song');
+                if (!card) return;
+
+                var list = lists.get(container) || [];
+                var song = list.filter(function (s) { return s.id === card.dataset.id; })[0];
+                if (!song) return;
+
+                if (favBtn) {
+                    event.stopPropagation();
+                    toggleFavorite(song);
+                    return;
+                }
+
+                playAt(list, list.indexOf(song));
+            });
+
+            container.addEventListener('keydown', function (event) {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                var card = event.target.closest('.song');
+                if (!card) return;
+                event.preventDefault();
+                card.click();
+            });
+        });
+
+        /* player controls */
+        els.playBtn.addEventListener('click', togglePlay);
+        els.nextBtn.addEventListener('click', function () { step(1); });
+        els.prevBtn.addEventListener('click', function () { step(-1); });
+
+        els.volume.addEventListener('input', function () {
+            if (Number(els.volume.value) > 0) muted = false;
+            applyVolume();
+        });
+
+        els.muteBtn.addEventListener('click', function () {
+            muted = !muted;
+            applyVolume();
+        });
+
+        els.progress.addEventListener('input', function () {
+            seekTo(Number(els.progress.value));
+        });
+
+        els.audio.addEventListener('play', function () { setPlayingState(true); });
+        els.audio.addEventListener('pause', function () { setPlayingState(false); });
+        els.audio.addEventListener('ended', function () { step(1); });
+        els.audio.addEventListener('error', function () {
+            if (els.audio.src) toast(t('audioError'));
+        });
+
+        els.audio.addEventListener('timeupdate', function () {
+            var d = els.audio.duration;
+            if (isFinite(d) && d > 0) {
+                els.progress.value = String((els.audio.currentTime / d) * 1000);
+            }
+            els.currentTime.textContent = formatTime(els.audio.currentTime);
+        });
+
+        els.audio.addEventListener('loadedmetadata', function () {
+            els.durationTime.textContent = formatTime(els.audio.duration);
+        });
+
+        /* keyboard shortcuts */
+        document.addEventListener('keydown', function (event) {
+            var tag = (event.target.tagName || '').toLowerCase();
+            if (tag === 'input' || tag === 'textarea' || event.target.isContentEditable) return;
+
+            if (event.key === 'Escape') {
+                if (els.sidebar.classList.contains('open')) closeSidebar();
+                return;
+            }
+
+            switch (event.key) {
+                case ' ':
+                    event.preventDefault();
+                    togglePlay();
+                    break;
+                case 'ArrowRight':
+                    if (event.ctrlKey || event.metaKey) { event.preventDefault(); step(1); }
+                    else if (isFinite(els.audio.duration)) seekTo(Math.min(1000, Number(els.progress.value) + 50));
+                    break;
+                case 'ArrowLeft':
+                    if (event.ctrlKey || event.metaKey) { event.preventDefault(); step(-1); }
+                    else if (isFinite(els.audio.duration)) seekTo(Math.max(0, Number(els.progress.value) - 50));
+                    break;
+                case 'ArrowUp':
+                    event.preventDefault();
+                    els.volume.value = String(Math.min(1, audioLevel() + 0.05));
+                    muted = false;
+                    applyVolume();
+                    break;
+                case 'ArrowDown':
+                    event.preventDefault();
+                    els.volume.value = String(Math.max(0, audioLevel() - 0.05));
+                    applyVolume();
+                    break;
+                case 'm':
+                case 'M':
+                case 'ь':
+                case 'Ь':
+                    muted = !muted;
+                    applyVolume();
+                    break;
+            }
+        });
+
+        /* close sidebar when returning to desktop layout */
+        window.addEventListener('resize', function () {
+            if (window.innerWidth > 900 && els.sidebar.classList.contains('open')) closeSidebar();
+        });
+
+        /* follow the real player height so content is never hidden */
+        if ('ResizeObserver' in window) {
+            new ResizeObserver(function (entries) {
+                var height = entries[0].contentRect.height;
+                if (height > 0) {
+                    document.documentElement.style.setProperty('--player-h', Math.ceil(height) + 'px');
+                }
+            }).observe(els.player);
+        }
+
+        /* follow the OS theme when the user has no explicit choice */
+        if (window.matchMedia) {
+            var mq = window.matchMedia('(prefers-color-scheme: light)');
+            var onSchemeChange = function (event) {
+                if (!read(STORE.theme, null)) {
+                    applyTheme(event.matches ? 'light' : 'dark');
+                }
+            };
+            if (mq.addEventListener) mq.addEventListener('change', onSchemeChange);
+            else if (mq.addListener) mq.addListener(onSchemeChange);
+        }
+
+        /* media session hardware buttons */
+        if ('mediaSession' in navigator) {
+            try {
+                navigator.mediaSession.setActionHandler('play', togglePlay);
+                navigator.mediaSession.setActionHandler('pause', togglePlay);
+                navigator.mediaSession.setActionHandler('previoustrack', function () { step(-1); });
+                navigator.mediaSession.setActionHandler('nexttrack', function () { step(1); });
+            } catch (e) { /* not supported */ }
+        }
+    }
+
+    /* --------------------------------------------------------
+       17. INIT
+       -------------------------------------------------------- */
+
+    function init() {
+        var systemLight = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+        var savedTheme = read(STORE.theme, null);
+        if (savedTheme !== 'light' && savedTheme !== 'dark') savedTheme = null;
+        applyTheme(savedTheme || (systemLight ? 'light' : 'dark'));
+
+        els.volume.value = String(initialVolume);
+        applyVolume();
+
+        applyLanguage();
+        bindEvents();
+
+        /* restore the last played track (paused) */
+        var last = read(STORE.lastTrack, null);
+        if (last && last.id) {
+            queue = [last];
+            queueIndex = 0;
+            setCurrent(last, [last], 0);
+        } else {
+            els.playerTitle.textContent = t('chooseSong');
+        }
+
+        setView(currentView);
+        updateBadges();
+        renderFavorites();
+        renderHistory();
+        loadPopular();
+    }
+
+    init();
+
+})();
